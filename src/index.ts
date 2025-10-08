@@ -34,29 +34,10 @@ export default function sustainable(
       if (existsSync(cdnMappingsPath)) {
         cdnMappings = JSON.parse(readFileSync(cdnMappingsPath, "utf-8"));
       } else {
-        // Create default CDN mappings file
-        const defaultMappings: CDNMapping = {
-          react: "https://esm.sh/react@{version}",
-          "react-dom": "https://esm.sh/react-dom@{version}",
-          "react-dom/client": "https://esm.sh/react-dom@{version}/client",
-          "framer-motion": "https://esm.sh/framer-motion@{version}",
-          "lucide-react": "https://esm.sh/lucide-react@{version}",
-          clsx: "https://esm.sh/clsx@{version}",
-          "tailwind-merge": "https://esm.sh/tailwind-merge@{version}",
-          "class-variance-authority":
-            "https://esm.sh/class-variance-authority@{version}",
-        };
-
-        // Write default mappings file
-        await import("fs/promises").then((fs) =>
-          fs.writeFile(
-            cdnMappingsPath,
-            JSON.stringify(defaultMappings, null, 2)
-          )
+        console.error(
+          `❌ Sustainable Plugin: CDN mappings file not found at ${cdnMappingsPath}`
         );
-        cdnMappings = defaultMappings;
-
-        console.log(`📦 Created default CDN mappings file: ${cdnMappingsFile}`);
+        return;
       }
 
       // Read package.json for dependencies
