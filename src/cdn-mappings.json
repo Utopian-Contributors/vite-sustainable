@@ -1,0 +1,9 @@
+{
+  "react": "https://esm.sh/react@{version}",
+  "react-dom": "https://esm.sh/react-dom@{version}",
+  "react-dom/client": "https://esm.sh/react-dom@{version}/client",
+  "framer-motion": "https://esm.sh/framer-motion@{version}",
+  "lucide-react": "https://esm.sh/lucide-react@{version}",
+  "clsx": "https://esm.sh/clsx@{version}",
+  "tailwind-merge": "https://esm.sh/tailwind-merge@{version}"
+}
