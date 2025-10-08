@@ -118,7 +118,7 @@ The more applications use this plugin, the more dependencies can be cached acros
 
 ## License
 
-MIT © [Ludwig Schubert](https://github.com/UtopianContrib)
+MIT © [Ludwig Schubert](https://github.com/Utopian-Contributors)
 
 ## Contributing
 
