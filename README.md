@@ -19,6 +19,8 @@ A Vite plugin that generates import maps for your dependencies, enabling efficie
 npm install -D vite-sustainable
 ```
 
+> **Note**: This plugin requires Vite 4+ as a peer dependency. If you don't have Vite installed, install it first
+
 ## Usage
 
 ### Basic Setup
