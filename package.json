@@ -1,7 +1,7 @@
 {
   "name": "vite-sustainable",
-  "version": "0.0.10",
-  "description": "A plugin that generates import maps for your dependencies, so they can be cached across origins",
+  "version": "0.0.24",
+  "description": "A post-processing tool that creates dual builds with import maps for cross-origin caching",
   "repository": {
     "type": "git",
     "url": "git@github.com:Utopian-Contributors/vite-sustainable.git"
@@ -9,19 +9,28 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "vite-sustainable": "./dist/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./postprocess": {
+      "types": "./dist/postprocess.d.ts",
+      "import": "./dist/postprocess.js"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && chmod +x dist/cli.js",
     "dev": "tsc --watch",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build",
+    "postinstall": "echo 'Add \"postbuild\": \"vite-sustainable\" to your package.json scripts'"
   },
   "author": "Ludwig Schubert (@UtopianContrib)",
   "license": "MIT",

@@ -3,15 +3,17 @@
 [![npm version](https://badge.fury.io/js/vite-sustainable.svg)](https://badge.fury.io/js/vite-sustainable)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A Vite plugin that generates import maps for your dependencies, enabling efficient cross-origin caching and sustainable web delivery.
+A Vite post-processing tool that creates dual builds with smart loading based on sustainability preferences. It generates both a standard build and an optimized mini build with externalized dependencies loaded from CDNs using import maps.-sustainable
+
 
 ## Features
 
-🌍 **Cross-origin caching** - Dependencies are loaded from CDNs and cached across different origins  
-📦 **Automatic import maps** - Generates HTML import maps with exact dependency versions  
-🚀 **Zero configuration** - Works out of the box with sensible defaults  
-⚡ **Build optimization** - Externalizes dependencies to reduce bundle size  
-🔧 **Customizable** - Configure CDN mappings and exclusions per project
+�️ **Dual Build System** - Creates both standard and optimized builds in a single step  
+🌍 **Smart Loading** - Automatically selects build based on `window.__SUSTAINABLE_BUILD__` flag  
+📦 **Import Maps** - Generates HTML import maps with exact dependency versions from lock files  
+⚡ **CDN Externalization** - Reduces bundle size by loading dependencies from extension  
+🔧 **Customizable** - Configure CDN mappings and exclusions per project  
+🚀 **Post-Build Processing** - Runs after your normal Vite build completes
 
 ## Installation
 
@@ -23,24 +25,38 @@ npm install -D vite-sustainable
 
 ## Usage
 
-### Basic Setup
+### As a Post-Processing Tool (Recommended)
+
+Add to your `package.json` scripts:
+
+```json
+{
+  "scripts": {
+    "build": "vite build",
+    "postbuild": "vite-sustainable"
+  }
+}
+```
+
+Then run your normal build:
+
+```bash
+npm run build
+# vite-sustainable runs automatically after build completes
+```
+
+### CLI Options
+
+```bash
+# With custom options
+npx vite-sustainable --outDir dist --cdnMappingsPath ./custom-mappings.json --exclude react,react-dom
+```
+
+### As a Plugin (Legacy Mode)
 
 ```ts
 // vite.config.ts
 import { defineConfig } from 'vite'
-import sustainable from 'vite-sustainable'
-
-export default defineConfig({
-  plugins: [
-    sustainable()
-  ]
-})
-```
-
-### With Options
-
-```ts
-// vite.config.ts
 import sustainable from 'vite-sustainable'
 
 export default defineConfig({
@@ -59,7 +75,9 @@ export default defineConfig({
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `cdnMappingsFile` | `string` | `'./cdn-mappings.json'` | Path to CDN mappings configuration |
+| `root` | `string` | `process.cwd()` | Root directory of the project |
+| `outDir` | `string` | `'dist'` | Output directory for builds |
+| `cdnMappingsPath` | `string` | Built-in mappings | Path to CDN mappings configuration |
 | `exclude` | `string[]` | `[]` | Packages to exclude from externalization |
 
 ### CDN Mappings
@@ -79,23 +97,51 @@ The `{version}` placeholder will be replaced with the exact version from your lo
 
 ## How It Works
 
-1. **Dependency Analysis** - Reads your `package.json` and lock files to determine exact versions
-2. **Import Map Generation** - Creates import maps mapping package names to CDN URLs
-3. **Build Externalization** - Configures Rollup to treat mapped dependencies as external
-4. **HTML Injection** - Automatically injects the import map into your HTML
+1. **Standard Build** - First runs your normal Vite build to `dist/assets/`
+2. **Dependency Analysis** - Reads lock files to find exact versions of all dependencies
+3. **Mini Build** - Creates optimized build with CDN-mapped dependencies externalized to `dist/mini/`
+4. **Import Map Generation** - Injects import maps for externalized dependencies
+5. **Smart Index.html** - Creates unified HTML that conditionally loads based on sustainability flag:
+   - When `window.__SUSTAINABLE_BUILD__` is true: loads standard build
+   - Otherwise: loads mini build with CDN dependencies
 
 ## Example Output
 
-The plugin generates an import map like this in your HTML:
+After running the post-processor, your `dist/` directory will contain:
+
+```
+dist/
+├── index.html          # Smart loader with conditional loading
+├── assets/            # Standard build files
+│   ├── index-xxxxx.js
+│   └── index-xxxxx.css
+└── mini/              # Optimized build files
+    ├── index-xxxxx.js
+    └── index-xxxxx.css
+```
+
+The generated `index.html` includes:
 
 ```html
 <script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react-dom": "https://esm.sh/react-dom@18.2.0"
+  {
+    "imports": {
+      "react": "https://esm.sh/react@19.2.0",
+      "react-dom": "https://esm.sh/react-dom@19.2.0"
+    }
   }
-}
+</script>
+
+<script type="module">
+  await Promise.resolve(
+    setTimeout(async () => {
+      if (window.__SUSTAINABLE_BUILD__) {
+        await import("/assets/index-xxxxx.js");
+      } else {
+        await import("/mini/index-xxxxx.js");
+      }
+    }, 10)
+  );
 </script>
 ```
 
