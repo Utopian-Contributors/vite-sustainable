@@ -29,8 +29,7 @@
     "build": "tsc && chmod +x dist/cli.js",
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
-    "prepublishOnly": "yarn clean && yarn build",
-    "postinstall": "echo 'Add \"postbuild\": \"vite-sustainable\" to your package.json scripts'"
+    "prepublishOnly": "yarn clean && yarn build"
   },
   "author": "Ludwig Schubert (@UtopianContrib)",
   "license": "MIT",
@@ -39,6 +38,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.4",
+    "prettier": "^3.6.2",
     "tsc": "^2.0.4",
     "typescript": "^5.9.3",
     "vite": "^7.1.9"

@@ -24,7 +24,7 @@ export interface PostProcessOptions {
 }
 
 async function getAllLockDependencies(
-  rootPath: string
+  rootPath: string,
 ): Promise<Record<string, string>> {
   const versions: Record<string, string> = {};
 
@@ -35,9 +35,9 @@ async function getAllLockDependencies(
       const yarnLock = readFileSync(yarnLockPath, "utf-8");
 
       // Parse yarn.lock format
-      const lines = yarnLock.split('\n');
-      let currentPackage = '';
-      
+      const lines = yarnLock.split("\n");
+      let currentPackage = "";
+
       for (const line of lines) {
         // Match package declaration like: "package@version":
         const packageMatch = line.match(/^"?([^@\s]+)@[^"]*"?:$/);
@@ -45,13 +45,13 @@ async function getAllLockDependencies(
           currentPackage = packageMatch[1];
           continue;
         }
-        
+
         // Match version field
-        if (currentPackage && line.trim().startsWith('version')) {
+        if (currentPackage && line.trim().startsWith("version")) {
           const versionMatch = line.match(/version\s+"([^"]+)"/);
           if (versionMatch && versionMatch[1]) {
             versions[currentPackage] = versionMatch[1];
-            currentPackage = '';
+            currentPackage = "";
           }
         }
       }
@@ -67,7 +67,7 @@ async function getAllLockDependencies(
         // npm v7+ format - get ALL packages, not just top-level
         Object.keys(packageLock.packages).forEach((path) => {
           if (path.startsWith("node_modules/")) {
-            const parts = path.replace("node_modules/", "").split('/');
+            const parts = path.replace("node_modules/", "").split("/");
             const packageName = parts[0];
             if (packageName) {
               const packageData = packageLock.packages[path];
@@ -110,7 +110,6 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
 
   const rootDir = resolve(root);
   const outputDir = resolve(rootDir, outDir);
-  const tempDir = resolve(rootDir, ".sustainable-temp");
   const miniDir = resolve(outputDir, "mini");
 
   console.log("🚀 Starting sustainable post-processing...");
@@ -118,7 +117,7 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
   try {
     // Step 1: Read CDN mappings
     let cdnMappings: CDNMapping = defaultCdnMappings;
-    
+
     if (cdnMappingsPath) {
       const mappingsPath = resolve(rootDir, cdnMappingsPath);
       if (existsSync(mappingsPath)) {
@@ -128,7 +127,7 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
     }
 
     console.log(
-      `📋 CDN mappings available for ${Object.keys(cdnMappings).length} packages`
+      `📋 CDN mappings available for ${Object.keys(cdnMappings).length} packages`,
     );
 
     // Step 2: Get all dependencies from lock file
@@ -136,14 +135,14 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
 
     // Step 3: Filter dependencies to externalize
     const depsToExternalize = Object.keys(cdnMappings).filter(
-      (dep) => allLockDependencies[dep] && !exclude.includes(dep)
+      (dep) => allLockDependencies[dep] && !exclude.includes(dep),
     );
 
     console.log(
-      `📦 Found ${Object.keys(allLockDependencies).length} dependencies in lock file`
+      `📦 Found ${Object.keys(allLockDependencies).length} dependencies in lock file`,
     );
     console.log(
-      `🎯 Will externalize ${depsToExternalize.length} dependencies that match CDN mappings`
+      `🎯 Will externalize ${depsToExternalize.length} dependencies that match CDN mappings`,
     );
 
     if (depsToExternalize.length === 0) {
@@ -163,41 +162,14 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
 
     console.log("📦 Generated import map:", importMap);
 
-    // Step 5: Save current build to temp
-    if (existsSync(tempDir)) {
-      rmSync(tempDir, { recursive: true });
-    }
-    if (existsSync(outputDir)) {
-      cpSync(outputDir, tempDir, { recursive: true });
-      console.log("💾 Saved current build to temp directory");
+    // Step 5: Check if build exists
+    if (!existsSync(outputDir)) {
+      console.error("❌ No build found at", outputDir);
+      console.error("   Please run 'vite build' first before post-processing");
+      return;
     }
 
-    // Step 6: Clear output directory
-    if (existsSync(outputDir)) {
-      rmSync(outputDir, { recursive: true });
-    }
-    mkdirSync(outputDir, { recursive: true });
-
-    // Step 7: Run normal build first
-    console.log("🔨 Building standard version...");
-    
-    const viteConfigPath = resolve(rootDir, "vite.config.ts");
-    const configFileExists = existsSync(viteConfigPath);
-
-    const normalBuildConfig: InlineConfig = {
-      root: rootDir,
-      mode: "production",
-      build: {
-        outDir: outputDir,
-        emptyOutDir: true,
-      },
-      configFile: configFileExists ? viteConfigPath : false,
-    };
-
-    await viteBuild(normalBuildConfig);
-    console.log("✅ Standard build completed");
-
-    // Step 8: Save standard build files
+    // Read existing build files
     const standardIndexPath = join(outputDir, "index.html");
     let standardHtml = "";
     let standardScriptPath = "";
@@ -205,16 +177,27 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
 
     if (existsSync(standardIndexPath)) {
       standardHtml = readFileSync(standardIndexPath, "utf-8");
-      
+
       // Extract script and style paths
-      const scriptMatch = standardHtml.match(/<script type="module" crossorigin src="(\/assets\/[^"]+)">/);
-      const styleMatch = standardHtml.match(/<link rel="stylesheet" crossorigin href="(\/assets\/[^"]+)">/);
-      
+      const scriptMatch = standardHtml.match(
+        /<script type="module" crossorigin src="(\/assets\/[^"]+)">/,
+      );
+      const styleMatch = standardHtml.match(
+        /<link rel="stylesheet" crossorigin href="(\/assets\/[^"]+)">/,
+      );
+
       standardScriptPath = scriptMatch?.[1] || "";
       standardStylePath = styleMatch?.[1] || "";
+    } else {
+      console.error("❌ No index.html found in build directory");
+      return;
     }
 
-    // Step 9: Run mini build with externalized dependencies
+    // Step 7: Setup for mini build
+    const viteConfigPath = resolve(rootDir, "vite.config.ts");
+    const configFileExists = existsSync(viteConfigPath);
+
+    // Step 8: Run mini build with externalized dependencies
     console.log("🔨 Building mini version with externalized dependencies...");
 
     const miniBuildConfig: InlineConfig = {
@@ -223,13 +206,14 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
       build: {
         outDir: miniDir,
         emptyOutDir: true,
+        copyPublicDir: false,
         rollupOptions: {
           external: depsToExternalize,
           output: {
             format: "es",
-            entryFileNames: "index-[hash].js",
-            chunkFileNames: "[name]-[hash].js",
-            assetFileNames: "[name]-[hash].[ext]",
+            entryFileNames: "assets/index-[hash].js",
+            chunkFileNames: "assets/[name]-[hash].js",
+            assetFileNames: "assets/[name]-[hash].[ext]",
           },
         },
       },
@@ -239,36 +223,54 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
     await viteBuild(miniBuildConfig);
     console.log("✅ Mini build completed");
 
-    // Step 10: Get mini build file paths
+    // Step 9: Get mini build file paths
     let miniScriptPath = "";
-    
+
     const miniIndexPath = join(miniDir, "index.html");
+    console.log(`🔍 Looking for mini index.html at: ${miniIndexPath}`);
+
     if (existsSync(miniIndexPath)) {
       const miniHtml = readFileSync(miniIndexPath, "utf-8");
-      
+      console.log(`📄 Mini index.html found, length: ${miniHtml.length} chars`);
+
       // Extract script and style paths from mini build
-      const miniScriptMatch = miniHtml.match(/<script type="module" crossorigin src="(\/assets\/[^"]+)">/);
-      
+      const miniScriptMatch = miniHtml.match(
+        /<script type="module" crossorigin src="(\/[^"]+)">/,
+      );
+
       if (miniScriptMatch?.[1]) {
         // Convert to relative path from mini directory
         miniScriptPath = miniScriptMatch[1].replace("/assets/", "/mini/");
+        console.log(`📄 Found mini script path: ${miniScriptPath}`);
+      } else {
+        console.error("❌ Could not find script path in mini build index.html");
+        console.error("Mini HTML content:", miniHtml.substring(0, 500) + "...");
+        throw new Error("Could not find script path in mini build index.html");
       }
     }
 
-    // Step 11: Move mini assets to dist/mini
+    // Step 10: Move mini assets to dist/mini
     const miniAssetsDir = join(miniDir, "assets");
     const targetMiniDir = join(outputDir, "mini");
-    
+
+    console.log(`🔍 Looking for mini assets at: ${miniAssetsDir}`);
+
     if (existsSync(miniAssetsDir)) {
+      const assetFiles = readdirSync(miniAssetsDir);
+      console.log(`📦 Found ${assetFiles.length} asset files in mini build`);
+
       mkdirSync(targetMiniDir, { recursive: true });
-      
+
       // Move only the asset files, not the HTML
-      readdirSync(miniAssetsDir).forEach(file => {
+      assetFiles.forEach((file) => {
+        console.log(`  📄 Moving: ${file}`);
         cpSync(join(miniAssetsDir, file), join(targetMiniDir, file));
       });
+    } else {
+      console.warn(`⚠️  No assets directory found at: ${miniAssetsDir}`);
     }
 
-    // Step 12: Create the unified index.html with conditional loading
+    // Step 11: Create the unified index.html with conditional loading
     const unifiedHtml = `<!DOCTYPE html>
 <html lang="en">
   <head>
@@ -287,9 +289,9 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
       await Promise.resolve(
         setTimeout(async () => {
           if (window.__SUSTAINABLE_BUILD__) {
-            await import("${standardScriptPath}");
-          } else {
             await import("${miniScriptPath}");
+          } else {
+            await import("${standardScriptPath}");
           }
         }, 10)
       );
@@ -303,14 +305,9 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
 
     // Write the unified HTML
     writeFileSync(standardIndexPath, unifiedHtml);
-    console.log("📝 Created unified index.html with conditional loading");
+    console.log("📝 Updated index.html with conditional loading");
 
-    // Step 13: Clean up temp directory
-    if (existsSync(tempDir)) {
-      rmSync(tempDir, { recursive: true });
-    }
-
-    // Step 14: Clean up the mini build's separate files
+    // Step 12: Clean up the mini build's separate files
     if (existsSync(miniIndexPath)) {
       rmSync(miniIndexPath);
     }
@@ -323,7 +320,8 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
    
    Build structure:
    ${outputDir}/
-   ├── index.html (with conditional loading)
+   ├── index.html (updated with conditional loading)
+   ├── index.original.html (backup of original)
    ├── assets/ (standard build)
    └── mini/ (externalized dependencies)
    
@@ -331,18 +329,8 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
    - Standard build when window.__SUSTAINABLE_BUILD__ is true
    - Mini build (with CDN dependencies) otherwise
 `);
-
   } catch (error) {
     console.error("❌ Error during post-processing:", error);
-
-    // Try to restore the original build if something went wrong
-    if (existsSync(tempDir) && !existsSync(outputDir)) {
-      console.log("🔄 Attempting to restore original build...");
-      cpSync(tempDir, outputDir, { recursive: true });
-      rmSync(tempDir, { recursive: true });
-      console.log("✅ Original build restored");
-    }
-
     throw error;
   }
 }

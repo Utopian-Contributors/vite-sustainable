@@ -3,7 +3,7 @@
 [![npm version](https://badge.fury.io/js/vite-sustainable.svg)](https://badge.fury.io/js/vite-sustainable)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A Vite post-processing tool that creates dual builds with smart loading based on sustainability preferences. It generates both a standard build and an optimized mini build with externalized dependencies loaded from CDNs using import maps.-sustainable
+A Vite post-processing tool that enhances your existing build with a sustainable alternative. It creates an additional optimized mini build with externalized dependencies loaded from CDNs using import maps, then updates your index.html to conditionally load the based on the `window.__SUSTAINABLE_BUILD__` flag. This ensures the mini build is only loaded when the sustainable browser extension is installed.
 
 
 ## Features
@@ -21,7 +21,10 @@ A Vite post-processing tool that creates dual builds with smart loading based on
 npm install -D vite-sustainable
 ```
 
-> **Note**: This plugin requires Vite 4+ as a peer dependency. If you don't have Vite installed, install it first
+> **Note**: 
+> - Install as a **dev dependency** (`-D` flag)
+> - Requires Vite 4+ as a peer dependency
+> - This is a post-processing tool that runs **after** your normal Vite build
 
 ## Usage
 
@@ -97,13 +100,14 @@ The `{version}` placeholder will be replaced with the exact version from your lo
 
 ## How It Works
 
-1. **Standard Build** - First runs your normal Vite build to `dist/assets/`
+1. **Runs After Build** - Processes your existing Vite build output
 2. **Dependency Analysis** - Reads lock files to find exact versions of all dependencies
-3. **Mini Build** - Creates optimized build with CDN-mapped dependencies externalized to `dist/mini/`
+3. **Mini Build Creation** - Creates optimized build with CDN-mapped dependencies in `dist/mini/`
 4. **Import Map Generation** - Injects import maps for externalized dependencies
-5. **Smart Index.html** - Creates unified HTML that conditionally loads based on sustainability flag:
+5. **Index.html Enhancement** - Updates your index.html with conditional loading:
    - When `window.__SUSTAINABLE_BUILD__` is true: loads standard build
    - Otherwise: loads mini build with CDN dependencies
+6. **Original Backup** - Keeps your original index.html as `index.original.html`
 
 ## Example Output
 
