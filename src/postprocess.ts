@@ -8,12 +8,18 @@ import {
     writeFileSync,
 } from "fs";
 import { join, resolve } from "path";
+import semver from "semver";
 import type { InlineConfig } from "vite";
 import { build as viteBuild } from "vite";
 import defaultCdnMappings from "./cdn-mappings.json" with { type: "json" };
+import manifestExport from "./manifest.export.json" with { type: "json" };
 
 interface CDNMapping {
   [packageName: string]: string; // URL template with {version} placeholder
+}
+
+interface ManifestExport {
+  [packageName: string]: string[]; // Array of available versions
 }
 
 export interface PostProcessOptions {
@@ -100,6 +106,96 @@ async function getAllLockDependencies(
   return versions;
 }
 
+/**
+ * Finds the closest available version from the manifest using semver
+ * Prefers the exact match or the highest version that's <= requested version
+ * Falls back to the lowest available version if requested version is lower than all available
+ */
+function findClosestVersion(
+  requestedVersion: string,
+  availableVersions: string[],
+): string | null {
+  if (availableVersions.length === 0) return null;
+
+  // Clean and validate versions
+  const cleanRequested = semver.clean(requestedVersion);
+  if (!cleanRequested) {
+    console.warn(`  ⚠️  Invalid requested version: ${requestedVersion}`);
+    return availableVersions[0] || null; // Return first available as fallback
+  }
+
+  // Check for exact match first
+  if (availableVersions.includes(requestedVersion)) {
+    return requestedVersion;
+  }
+
+  // Filter and sort available versions in descending order
+  const validVersions = availableVersions
+    .filter((v) => semver.valid(v))
+    .sort((a, b) => semver.rcompare(a, b)); // rcompare sorts descending
+
+  if (validVersions.length === 0) {
+    console.warn(`  ⚠️  No valid semver versions available`);
+    return availableVersions[0] || null; // Return first available as fallback
+  }
+
+  // Find the highest version that's <= requested version
+  for (const version of validVersions) {
+    if (semver.lte(version, cleanRequested)) {
+      return version;
+    }
+  }
+
+  // If requested version is lower than all available, use the lowest available
+  return validVersions[validVersions.length - 1] || null;
+}
+
+/**
+ * Maps lock file versions to the closest available versions from the manifest
+ */
+function mapToAvailableVersions(
+  lockDependencies: Record<string, string>,
+  manifest: ManifestExport,
+): Record<string, string> {
+  const mappedVersions: Record<string, string> = {};
+
+  Object.keys(lockDependencies).forEach((packageName) => {
+    const requestedVersion = lockDependencies[packageName];
+    if (!requestedVersion) return;
+
+    const availableVersions = manifest[packageName];
+
+    if (availableVersions && availableVersions.length > 0) {
+      const closestVersion = findClosestVersion(
+        requestedVersion,
+        availableVersions,
+      );
+      if (closestVersion) {
+        mappedVersions[packageName] = closestVersion;
+        if (closestVersion !== requestedVersion) {
+          console.log(
+            `  📦 ${packageName}: ${requestedVersion} → ${closestVersion} (closest available)`,
+          );
+        } else {
+          console.log(`  ✓ ${packageName}: ${requestedVersion} (exact match)`);
+        }
+      } else {
+        // No suitable version found
+        throw new Error(
+          `  ⚠️  ${packageName}: No suitable version found in manifest, you will need to exclude it manually from being processed.`,
+        );
+      }
+    } else {
+      // Package not in manifest, use requested version
+      throw new Error(
+        `  ⚠️  ${packageName}: The requested package is not available in the manifest, you will need to exclude it manually from being processed.`,
+      );
+    }
+  });
+
+  return mappedVersions;
+}
+
 export async function createDualBuild(options: PostProcessOptions = {}) {
   const {
     root = process.cwd(),
@@ -115,13 +211,36 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
   console.log("🚀 Starting sustainable post-processing...");
 
   try {
-    // Step 1: Read CDN mappings
+    // Read CDN mappings
     let cdnMappings: CDNMapping = defaultCdnMappings;
 
     if (cdnMappingsPath) {
       const mappingsPath = resolve(rootDir, cdnMappingsPath);
       if (existsSync(mappingsPath)) {
-        cdnMappings = JSON.parse(readFileSync(mappingsPath, "utf-8"));
+        const customMappings = JSON.parse(readFileSync(mappingsPath, "utf-8"));
+
+        // Validate that all CDN mappings use esm.sh
+        const invalidMappings: string[] = [];
+        Object.entries(customMappings).forEach(([packageName, url]) => {
+          if (typeof url === "string" && !url.includes("esm.sh")) {
+            invalidMappings.push(`${packageName}: ${url}`);
+          }
+        });
+
+        if (invalidMappings.length > 0) {
+          console.error("❌ Custom CDN mappings contain non-esm.sh URLs:");
+          invalidMappings.forEach((mapping) => {
+            console.error(`   ${mapping}`);
+          });
+          console.error("\n⚠️  Currently, only esm.sh CDN is supported.");
+          console.error(
+            "   Please update your cdn-mappings.json to use esm.sh URLs.",
+          );
+          console.error("   Example: https://esm.sh/package-name@{version}");
+          throw new Error("Invalid CDN mappings");
+        }
+
+        cdnMappings = customMappings;
         console.log(`✅ Loaded custom CDN mappings from ${mappingsPath}`);
       }
     }
@@ -130,19 +249,20 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
       `📋 CDN mappings available for ${Object.keys(cdnMappings).length} packages`,
     );
 
-    // Step 2: Get all dependencies from lock file
+    // Get all dependencies from lock file
     const allLockDependencies = await getAllLockDependencies(rootDir);
 
-    // Step 3: Filter dependencies to externalize
+    console.log(
+      `📦 Found ${Object.keys(allLockDependencies).length} dependencies in lock file`,
+    );
+
+    // Filter dependencies to externalize based on CDN mappings
     const depsToExternalize = Object.keys(cdnMappings).filter(
       (dep) => allLockDependencies[dep] && !exclude.includes(dep),
     );
 
     console.log(
-      `📦 Found ${Object.keys(allLockDependencies).length} dependencies in lock file`,
-    );
-    console.log(
-      `🎯 Will externalize ${depsToExternalize.length} dependencies that match CDN mappings`,
+      `🎯 Found ${depsToExternalize.length} dependencies that match CDN mappings`,
     );
 
     if (depsToExternalize.length === 0) {
@@ -150,10 +270,35 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
       return;
     }
 
-    // Step 4: Generate import map
-    const importMap: Record<string, string> = {};
+    // Get lock file versions for dependencies to externalize
+    const depsWithVersions: Record<string, string> = {};
     depsToExternalize.forEach((dep) => {
       const version = allLockDependencies[dep];
+      if (version) {
+        depsWithVersions[dep] = version;
+      }
+    });
+
+    // Map to available versions from manifest
+    console.log("🔍 Mapping to available versions from browser extension...");
+    const availableVersions = mapToAvailableVersions(
+      depsWithVersions,
+      manifestExport as ManifestExport,
+    );
+
+    console.log(
+      `✅ Successfully mapped ${Object.keys(availableVersions).length} dependencies to available versions`,
+    );
+
+    if (depsToExternalize.length === 0) {
+      console.log("ℹ️ No dependencies to externalize");
+      return;
+    }
+
+    // Generate import map using available versions
+    const importMap: Record<string, string> = {};
+    depsToExternalize.forEach((dep) => {
+      const version = availableVersions[dep];
       const cdnUrl = cdnMappings[dep];
       if (cdnUrl && version) {
         importMap[dep] = cdnUrl.replace("{version}", version);
@@ -162,7 +307,7 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
 
     console.log("📦 Generated import map:", importMap);
 
-    // Step 5: Check if build exists
+    // Check if build exists
     if (!existsSync(outputDir)) {
       console.error("❌ No build found at", outputDir);
       console.error("   Please run 'vite build' first before post-processing");
@@ -193,11 +338,11 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
       return;
     }
 
-    // Step 7: Setup for mini build
+    // Setup for mini build
     const viteConfigPath = resolve(rootDir, "vite.config.ts");
     const configFileExists = existsSync(viteConfigPath);
 
-    // Step 8: Run mini build with externalized dependencies
+    // Run mini build with externalized dependencies
     console.log("🔨 Building mini version with externalized dependencies...");
 
     const miniBuildConfig: InlineConfig = {
@@ -223,7 +368,7 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
     await viteBuild(miniBuildConfig);
     console.log("✅ Mini build completed");
 
-    // Step 9: Get mini build file paths
+    // Get mini build file paths
     let miniScriptPath = "";
 
     const miniIndexPath = join(miniDir, "index.html");
@@ -249,7 +394,7 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
       }
     }
 
-    // Step 10: Move mini assets to dist/mini
+    // Move mini assets to dist/mini
     const miniAssetsDir = join(miniDir, "assets");
     const targetMiniDir = join(outputDir, "mini");
 
@@ -270,7 +415,7 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
       console.warn(`⚠️  No assets directory found at: ${miniAssetsDir}`);
     }
 
-    // Step 11: Create the unified index.html with conditional loading
+    // Create the unified index.html with conditional loading
     const unifiedHtml = `<!DOCTYPE html>
 <html lang="en">
   <head>
@@ -307,7 +452,7 @@ export async function createDualBuild(options: PostProcessOptions = {}) {
     writeFileSync(standardIndexPath, unifiedHtml);
     console.log("📝 Updated index.html with conditional loading");
 
-    // Step 12: Clean up the mini build's separate files
+    // Clean up the mini build's separate files
     if (existsSync(miniIndexPath)) {
       rmSync(miniIndexPath);
     }
