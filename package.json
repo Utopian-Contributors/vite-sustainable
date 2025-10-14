@@ -1,6 +1,6 @@
 {
   "name": "vite-sustainable",
-  "version": "0.0.27",
+  "version": "0.0.28",
   "description": "A post-processing tool that creates dual builds with import maps for cross-origin caching",
   "repository": {
     "type": "git",
